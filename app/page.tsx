@@ -7,7 +7,7 @@ export default function Home() {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
-  // Effect to handle permissions and get stream
+  // Effect to handle permissions and get streams
   useEffect(() => {
     let permissionStatus: PermissionStatus | null = null;
     let localStream: MediaStream | null = null; // Keep track of the stream locally within this effect
