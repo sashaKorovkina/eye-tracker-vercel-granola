@@ -1,103 +1,132 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useRef, useState } from "react";
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [stream, setStream] = useState<MediaStream | null>(null);
+  const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
+  // Effect to handle permissions and get stream
+  useEffect(() => {
+    let permissionStatus: PermissionStatus | null = null;
+    let localStream: MediaStream | null = null; // Keep track of the stream locally within this effect
+
+    const checkAndRequestPermission = async () => {
+      try {
+        try {
+          permissionStatus = await navigator.permissions.query({ name: "camera" as PermissionName });
+          console.log("Initial permission state:", permissionStatus.state);
+
+          if (permissionStatus.state === "granted") {
+            setHasCameraPermission(true);
+            await enableCamera(); // Request immediately if granted
+          } else if (permissionStatus.state === "prompt") {
+            setHasCameraPermission(null); // Explicitly unknown
+            await enableCamera();
+          } else {
+            setHasCameraPermission(false); // Denied
+          }
+
+          permissionStatus.onchange = async () => {
+            console.log("Permission changed:", permissionStatus?.state);
+            if (permissionStatus?.state === "granted") {
+              setHasCameraPermission(true);
+              if (!localStream) { // Only enable if not already enabled
+                await enableCamera();
+              }
+            } else {
+              setHasCameraPermission(false);
+              stopStream(); // Stop if permission revoked
+            }
+          };
+        } catch (permError) {
+          console.warn("Permissions API not supported or failed, attempting getUserMedia directly:", permError);
+          setHasCameraPermission(null); 
+          await enableCamera();
+        }
+      } catch (error) {
+         console.error("Error during permission check or camera enabling:", error);
+         setHasCameraPermission(false);
+         stopStream();
+      }
+    };
+
+    const enableCamera = async () => {
+      // Avoid requesting if already have a stream or permission explicitly denied
+      if (localStream || hasCameraPermission === false) return;
+
+      try {
+        console.log("Requesting camera access...");
+        localStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        console.log("Camera access granted, stream obtained.");
+        setStream(localStream); 
+        setHasCameraPermission(true); 
+      } catch (error) {
+        console.error("Error accessing camera:", error);
+        setHasCameraPermission(false);
+        setStream(null); 
+        stopStream();
+      }
+    };
+
+    const stopStream = () => {
+      console.log("Stopping stream...");
+      if (localStream) {
+        localStream.getTracks().forEach((track) => track.stop());
+        localStream = null;
+      }
+      setStream(null);
+    };
+
+    checkAndRequestPermission();
+
+    // Cleanup function for the effect
+    return () => {
+      console.log("Cleanup: Stopping stream and removing listener.");
+      stopStream();
+      if (videoRef.current?.srcObject) {
+        videoRef.current.srcObject = null; 
+      }
+      if (permissionStatus) {
+        permissionStatus.onchange = null; 
+      }
+    };
+  }, []);
+
+  // Effect to handle attaching stream to video element and playing
+  // This useEffect needs to be outside the return statement
+  useEffect(() => {
+    if (videoRef.current && stream) {
+      console.log("Attaching stream to video element.");
+      videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(error => {
+          console.error("Error attempting to play video:", error);
+      });
+    } else {
+       if (videoRef.current?.srcObject) {
+           console.log("Clearing stream from video element.");
+           videoRef.current.srcObject = null;
+       }
+    }
+  }, [stream]); // Re-run when the stream state changes
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <main className="p-8 rounded-lg shadow-md bg-white">
+        <h1 className="text-2xl font-bold mb-4 text-center">Camera Access</h1>
+        {hasCameraPermission === true && stream ? (
+          <video
+            ref={videoRef}
+            className="w-64 h-48 rounded-md bg-black" 
+            autoPlay
+            playsInline
+            muted 
+          />
+        ) : (
+          <p className="text-center text-gray-600">Camera access not available.</p>
+        )}
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
     </div>
   );
 }
